@@ -172,38 +172,76 @@ async def search_jobs(
     """
     Search jobs with advanced filters.
     
+    Returns both:
+    - latest_jobs: All latest jobs from the source (no filters applied)
+    - filtered_jobs: Jobs that match the applied filters
+    
     Supports filtering by:
     - Budget range (min_budget, max_budget)
     - Maximum proposals (max_proposals)
     - Skills (job must have at least one)
-    - Source (best_matches, most_recent, saved_search, etc.)
+    - Keywords (searches in title/description)
+    - Source (best_matches, most_recent, saved_search, vollna, etc.)
     
     Results are sorted by newest first (posted_at DESC).
     """
-    repo = JobsFilteredRepo(db)
+    filtered_repo = JobsFilteredRepo(db)
+    raw_repo = JobsRawRepo(db)
     
-    # Build query
-    query: dict[str, any] = {}  # type: ignore
-    
-    # Source filter
+    # Build base query for source filter (applies to both latest and filtered)
+    base_query: dict[str, any] = {}  # type: ignore
     if payload.source:
-        query["source"] = payload.source
+        base_query["source"] = payload.source
+    
+    # Get latest jobs (all jobs from source, no filters)
+    latest_query = base_query.copy()
+    latest_total = await filtered_repo.col.count_documents(latest_query)
+    
+    latest_docs = await filtered_repo.find_many(
+        latest_query,
+        skip=payload.skip,
+        limit=payload.limit,
+        sort=[("posted_at", -1), ("created_at", -1)]
+    )
+    
+    latest_jobs: list[JobOut] = []
+    for doc in latest_docs:
+        latest_jobs.append(
+            JobOut(
+                id=oid_str(doc["_id"]),
+                title=doc.get("title") or "",
+                description=doc.get("description") or "",
+                url=doc.get("url") or "",
+                source=doc.get("source") or "",
+                region=doc.get("region"),
+                posted_at=doc.get("posted_at"),
+                skills=doc.get("skills") or [],
+                budget=doc.get("budget"),
+                proposals=doc.get("proposals"),
+                client=doc.get("client") or {},
+                created_at=doc.get("created_at") or datetime.utcnow(),
+                updated_at=doc.get("updated_at") or datetime.utcnow(),
+            )
+        )
+    
+    # Build filtered query (with all filters applied)
+    filtered_query = base_query.copy()
     
     # Budget filters
     if payload.min_budget is not None or payload.max_budget is not None:
-        query["budget"] = {}
+        filtered_query["budget"] = {}
         if payload.min_budget is not None:
-            query["budget"]["$gte"] = payload.min_budget
+            filtered_query["budget"]["$gte"] = payload.min_budget
         if payload.max_budget is not None:
-            query["budget"]["$lte"] = payload.max_budget
+            filtered_query["budget"]["$lte"] = payload.max_budget
     
     # Proposals filter
     if payload.max_proposals is not None:
-        query["proposals"] = {"$lte": payload.max_proposals}
+        filtered_query["proposals"] = {"$lte": payload.max_proposals}
     
     # Skills filter
     if payload.skills and len(payload.skills) > 0:
-        query["skills"] = {"$in": payload.skills}
+        filtered_query["skills"] = {"$in": payload.skills}
     
     # Keywords filter (search in title and description)
     if payload.keywords and len(payload.keywords) > 0:
@@ -212,29 +250,29 @@ async def search_jobs(
             keyword_conditions.append({"title": {"$regex": keyword, "$options": "i"}})
             keyword_conditions.append({"description": {"$regex": keyword, "$options": "i"}})
         
-        if "$or" in query:
+        if "$or" in filtered_query:
             # Combine with existing $or conditions
-            query["$and"] = [
-                {"$or": query.pop("$or")},
+            filtered_query["$and"] = [
+                {"$or": filtered_query.pop("$or")},
                 {"$or": keyword_conditions}
             ]
         else:
-            query["$or"] = keyword_conditions
+            filtered_query["$or"] = keyword_conditions
     
-    # Count total matches
-    total = await repo.col.count_documents(query)
+    # Count filtered matches
+    filtered_total = await filtered_repo.col.count_documents(filtered_query)
     
-    # Get jobs sorted by newest first
-    docs = await repo.find_many(
-        query,
+    # Get filtered jobs sorted by newest first
+    filtered_docs = await filtered_repo.find_many(
+        filtered_query,
         skip=payload.skip,
         limit=payload.limit,
         sort=[("posted_at", -1), ("created_at", -1)]
     )
     
-    jobs: list[JobOut] = []
-    for doc in docs:
-        jobs.append(
+    filtered_jobs: list[JobOut] = []
+    for doc in filtered_docs:
+        filtered_jobs.append(
             JobOut(
                 id=oid_str(doc["_id"]),
                 title=doc.get("title") or "",
@@ -253,9 +291,11 @@ async def search_jobs(
         )
     
     return JobSearchResponse(
-        total=total,
-        jobs=jobs,
-        applied_filters=query
+        latest_jobs=latest_jobs,
+        latest_jobs_count=latest_total,
+        filtered_jobs=filtered_jobs,
+        filtered_jobs_count=filtered_total,
+        applied_filters=filtered_query
     )
 
 
@@ -280,7 +320,7 @@ async def recommend_jobs(
     # First, get filtered jobs
     search_result = await search_jobs(payload, db)
     
-    if not search_result.jobs:
+    if not search_result.filtered_jobs:
         return JobRankResponse(
             ranked_jobs=[],
             scoring_breakdown={
@@ -289,8 +329,8 @@ async def recommend_jobs(
             }
         )
     
-    # Extract job IDs
-    job_ids = [job.id for job in search_result.jobs]
+    # Extract job IDs from filtered jobs
+    job_ids = [job.id for job in search_result.filtered_jobs]
     
     # Rank the jobs using AI
     rank_request = JobRankRequest(

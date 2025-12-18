@@ -121,10 +121,12 @@ class JobSearchRequest(BaseModel):
 
 
 class JobSearchResponse(BaseModel):
-    """Job search response"""
-    total: int
-    jobs: list[JobOut] = Field(default_factory=list)
-    applied_filters: dict[str, Any]
+    """Job search response with latest and filtered jobs"""
+    latest_jobs: list[JobOut] = Field(default_factory=list, description="All latest jobs from the source")
+    latest_jobs_count: int = Field(default=0, description="Total count of latest jobs")
+    filtered_jobs: list[JobOut] = Field(default_factory=list, description="Jobs that match the applied filters")
+    filtered_jobs_count: int = Field(default=0, description="Total count of filtered jobs")
+    applied_filters: dict[str, Any] = Field(default_factory=dict, description="Filters that were applied")
 
 
 class JobRankRequest(BaseModel):

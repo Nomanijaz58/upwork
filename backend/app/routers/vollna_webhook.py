@@ -1,7 +1,7 @@
 """
 Vollna webhook router - receives job alerts from Vollna extension via n8n.
 """
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -43,7 +43,7 @@ def _check_auth(
 
 @router.post("/jobs", response_model=JobIngestResponse)
 async def vollna_webhook(
-    payload: dict[str, Any] | list[dict[str, Any]],
+    payload: Union[dict[str, Any], list[dict[str, Any]]],
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db),
     _: None = Depends(_check_auth),
