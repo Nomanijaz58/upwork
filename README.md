@@ -1,140 +1,93 @@
-# Upwork Automation
+# Upwork Proposal Bot API
 
-FastAPI application with MongoDB using Beanie ODM and PyMongo.
+Production-ready FastAPI backend for an AI-powered Upwork job assistant with Vollna and n8n integration.
 
-## Setup Instructions
+## 🚀 Quick Start
 
-### Prerequisites
+### Local Development
 
-- Python 3.9+
-- MongoDB running on `localhost:27017`
-- MySQL (optional, for legacy endpoints)
+```bash
+# Install dependencies
+pip install -r backend/requirements.txt
 
-### Installation
+# Set environment variables
+cp .env.example .env
+# Edit .env with your MongoDB URI and other settings
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd upwork_automation
-   ```
-
-2. **Create virtual environment** (recommended)
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
-
-4. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your actual database credentials
-   ```
-
-5. **Start MongoDB** (if not already running)
-   ```bash
-   # macOS with Homebrew
-   brew services start mongodb-community
-   
-   # Or using Docker
-   docker run -d -p 27017:27017 mongo
-   ```
-
-6. **Run the server**
-   ```bash
-   cd backend
-   python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-7. **Access the API**
-   - API Documentation: http://localhost:8000/docs
-   - Health Check: http://localhost:8000/health
-   - API Routes: http://localhost:8000/api/
-
-## Project Structure
-
-```
-upwork_automation/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── config.py          # Configuration settings
-│   │   ├── db.py              # MongoDB connection setup
-│   │   ├── main.py            # FastAPI application
-│   │   ├── models.py          # Beanie document models
-│   │   ├── routes/
-│   │   │   ├── __init__.py
-│   │   │   └── example.py     # Example CRUD routes
-│   │   └── tasks.py
-│   ├── .env.example           # Environment variables template
-│   └── requirements.txt       # Python dependencies
-├── infra/
-│   └── docker-compose.yml
-└── README.md
+# Run server
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## API Endpoints
+### Deploy to Render
 
-### User Endpoints
-- `POST /api/users` - Create a new user
-- `GET /api/users` - Get all users
-- `GET /api/users/{user_id}` - Get a single user
-- `PUT /api/users/{user_id}` - Update a user
-- `DELETE /api/users/{user_id}` - Delete a user
+See [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) for complete deployment guide.
 
-### Product Endpoints
-- `POST /api/products` - Create a new product
-- `GET /api/products` - Get all products
-- `GET /api/products/{product_id}` - Get a single product
-- `PUT /api/products/{product_id}` - Update a product
-- `DELETE /api/products/{product_id}` - Delete a product
+**Quick Steps:**
+1. Push code to GitHub
+2. Connect repository to Render
+3. Render will auto-detect `render.yaml`
+4. Set environment variables in Render dashboard
+5. Deploy!
 
-## Technology Stack
+## 📋 Features
 
-- **FastAPI** - Modern Python web framework
-- **Beanie** - MongoDB ODM (Object Document Mapper)
-- **PyMongo** - MongoDB driver
-- **Motor** - Async MongoDB driver (used internally by Beanie)
-- **Pydantic** - Data validation
+- ✅ **Vollna Integration**: Webhook endpoint for Vollna job alerts
+- ✅ **n8n Workflow**: Ready for n8n automation
+- ✅ **Job Search**: Dynamic filtering by budget, proposals, skills, keywords
+- ✅ **AI Recommendations**: AI-powered job ranking
+- ✅ **AI Proposals**: Generate custom proposals with tone/length options
+- ✅ **MongoDB**: Scalable database with proper indexes
+- ✅ **Real-time**: Support for real-time job updates
 
-## Troubleshooting
+## 📚 Documentation
 
-### Files not opening in IDE
+- **Deployment**: [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md)
+- **Vollna Integration**: [VOLLNA_N8N_INTEGRATION.md](backend/VOLLNA_N8N_INTEGRATION.md)
+- **API Docs**: `http://localhost:8000/docs` (Swagger UI)
+- **Quick Start**: [QUICK_START_VOLLNA.md](backend/QUICK_START_VOLLNA.md)
 
-If other developers can't open files:
+## 🔗 API Endpoints
 
-1. **Clear Python cache**
-   ```bash
-   find . -type d -name __pycache__ -exec rm -r {} +
-   find . -type f -name "*.pyc" -delete
-   ```
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/vollna/jobs` | POST | Vollna webhook |
+| `/jobs/search` | POST | Filter jobs |
+| `/jobs/recommend` | POST | AI recommendations |
+| `/ai/generate-proposal` | POST | Generate proposal |
+| `/health` | GET | Health check |
 
-2. **Reinstall dependencies**
-   ```bash
-   pip install -r requirements.txt --force-reinstall
-   ```
+## 🔒 Environment Variables
 
-3. **Check Python version**
-   ```bash
-   python3 --version  # Should be 3.9+
-   ```
+```bash
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=upwork_proposal_bot
+N8N_SHARED_SECRET=your-secret-here
+OPENAI_API_KEY=your-openai-key (optional)
+LOG_LEVEL=INFO
+```
 
-4. **Verify environment variables**
-   - Ensure `.env` file exists
-   - Check that MongoDB URL is correct
+## 📦 Tech Stack
 
-### Common Issues
+- **FastAPI**: Modern Python web framework
+- **MongoDB**: NoSQL database with Motor (async driver)
+- **OpenAI**: AI-powered job ranking and proposal generation
+- **Pydantic**: Data validation
+- **Uvicorn**: ASGI server
 
-- **Import errors**: Make sure all dependencies are installed
-- **Database connection errors**: Verify MongoDB is running
-- **Port already in use**: Change port in uvicorn command or kill existing process
+## 🧪 Testing
 
-## Development
+```bash
+# Health check
+curl http://localhost:8000/health
 
-The server runs with auto-reload enabled, so code changes will automatically restart the server.
+# Test Vollna webhook
+curl -X POST http://localhost:8000/vollna/jobs \
+  -H "Content-Type: application/json" \
+  -H "X-N8N-Secret: your-secret" \
+  -d '{"title": "Test", "description": "Test", "url": "https://upwork.com/jobs/~test"}'
+```
 
+## 📄 License
+
+MIT
