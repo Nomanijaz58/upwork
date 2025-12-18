@@ -3,7 +3,8 @@ Vollna webhook router - receives job alerts from Vollna extension via n8n.
 """
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..core.settings import settings
@@ -15,21 +16,37 @@ from ..schemas.jobs import JobIngestRequest, JobIngestResponse
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/vollna", tags=["vollna"])
+security = HTTPBearer(auto_error=False)
 
 
-def _check_n8n_secret(x_n8n_secret: Optional[str]) -> None:
-    """Check n8n shared secret for authentication."""
+def _check_auth(
+    request: Request,
+    x_n8n_secret: Optional[str] = Header(default=None, alias="X-N8N-Secret"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> None:
+    """Check authentication via Bearer token or X-N8N-Secret header."""
     if settings.N8N_SHARED_SECRET is None:
         return  # not enforced if not configured
-    if not x_n8n_secret or x_n8n_secret != settings.N8N_SHARED_SECRET:
-        raise HTTPException(status_code=401, detail="invalid n8n secret")
+    
+    # Check Bearer token (from Vollna)
+    if credentials and credentials.credentials:
+        if credentials.credentials == settings.N8N_SHARED_SECRET:
+            return
+    
+    # Check X-N8N-Secret header (from n8n)
+    if x_n8n_secret and x_n8n_secret == settings.N8N_SHARED_SECRET:
+        return
+    
+    # No valid authentication found
+    raise HTTPException(status_code=401, detail="invalid authentication")
 
 
 @router.post("/jobs", response_model=JobIngestResponse)
 async def vollna_webhook(
     payload: dict[str, Any],
+    request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db),
-    x_n8n_secret: Optional[str] = Header(default=None, alias="X-N8N-Secret"),
+    _: None = Depends(_check_auth),
 ):
     """
     Webhook endpoint for Vollna job alerts via n8n.
@@ -57,9 +74,11 @@ async def vollna_webhook(
     
     Workflow:
     Vollna Extension → n8n Webhook → POST /vollna/jobs → Normalize → POST /ingest/upwork → MongoDB
-    """
-    _check_n8n_secret(x_n8n_secret)
     
+    Authentication:
+    - Supports Bearer Token (from Vollna): Authorization: Bearer <token>
+    - Supports X-N8N-Secret header (from n8n): X-N8N-Secret: <token>
+    """
     logger.info(f"Received Vollna webhook payload: {type(payload).__name__}")
     
     try:
@@ -77,8 +96,17 @@ async def vollna_webhook(
         # Create JobIngestRequest and use main ingestion logic
         ingest_request = JobIngestRequest(items=normalized_items)
         
+        # Get auth token for ingest_jobs (it expects X-N8N-Secret header)
+        # Extract from Bearer token or X-N8N-Secret header
+        auth_token = None
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            auth_token = auth_header.replace("Bearer ", "")
+        else:
+            auth_token = request.headers.get("X-N8N-Secret")
+        
         # Use the main ingestion endpoint logic
-        result = await ingest_jobs(ingest_request, db, x_n8n_secret)
+        result = await ingest_jobs(ingest_request, db, auth_token)
         
         logger.info(
             f"Vollna webhook processed: received={result.received}, "
