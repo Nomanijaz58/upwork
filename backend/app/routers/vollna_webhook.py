@@ -43,7 +43,7 @@ def _check_auth(
 
 @router.post("/jobs", response_model=JobIngestResponse)
 async def vollna_webhook(
-    payload: dict[str, Any],
+    payload: dict[str, Any] | list[dict[str, Any]],
     request: Request,
     db: AsyncIOMotorDatabase = Depends(get_db),
     _: None = Depends(_check_auth),
@@ -82,6 +82,11 @@ async def vollna_webhook(
     logger.info(f"Received Vollna webhook payload: {type(payload).__name__}")
     
     try:
+        # Handle both dict and list payloads
+        # If it's a list, wrap it in a dict with "jobs" key
+        if isinstance(payload, list):
+            payload = {"jobs": payload}
+        
         # Normalize Vollna payload (handles various formats)
         normalized_items = _normalize_vollna_payload(payload, source="vollna")
         
