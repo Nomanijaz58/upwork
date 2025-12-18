@@ -173,8 +173,8 @@ async def search_jobs(
     Search jobs with advanced filters.
     
     Returns both:
-    - latest_jobs: All latest jobs from the source (no filters applied)
-    - filtered_jobs: Jobs that match the applied filters
+    - latest_jobs: All latest jobs from the source (from jobs_raw, no filters applied)
+    - filtered_jobs: Jobs that match the applied filters (from jobs_filtered)
     
     Supports filtering by:
     - Budget range (min_budget, max_budget)
@@ -193,11 +193,11 @@ async def search_jobs(
     if payload.source:
         base_query["source"] = payload.source
     
-    # Get latest jobs (all jobs from source, no filters)
+    # Get latest jobs from jobs_raw (all jobs from source, no filters)
     latest_query = base_query.copy()
-    latest_total = await filtered_repo.col.count_documents(latest_query)
+    latest_total = await raw_repo.col.count_documents(latest_query)
     
-    latest_docs = await filtered_repo.find_many(
+    latest_docs = await raw_repo.find_many(
         latest_query,
         skip=payload.skip,
         limit=payload.limit,

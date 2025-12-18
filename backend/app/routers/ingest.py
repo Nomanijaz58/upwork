@@ -477,6 +477,13 @@ async def ingest_jobs(
             ok_geo, reasons_geo = filters.geo_match(item.model_dump(mode="json"), geo)
             reasons = reasons_kw + reasons_geo
 
+            # Log filter results for debugging
+            logger.debug(
+                f"Job {idx} filter check: keyword_match={ok_kw} (reasons: {reasons_kw}), "
+                f"geo_match={ok_geo} (reasons: {reasons_geo}), "
+                f"settings={settings_doc}, keywords_count={len(keywords)}, geo={geo}"
+            )
+
             if ok_kw and ok_geo:
                 filtered_doc = {
                     "raw_id": raw_id,
@@ -495,10 +502,28 @@ async def ingest_jobs(
                     "created_at": now,
                     "updated_at": now,
                 }
-                # Upsert by url
+                # Upsert by url - fix MongoDB conflict by separating setOnInsert and set
                 await filtered_repo.update_one(
                     {"url": normalized_url},
-                    {"$setOnInsert": filtered_doc, "$set": {"updated_at": now}},
+                    {
+                        "$setOnInsert": {
+                            k: v for k, v in filtered_doc.items() if k != "updated_at"
+                        },
+                        "$set": {
+                            "updated_at": now,
+                            "raw_id": raw_id,
+                            "title": item.title.strip(),
+                            "description": item.description.strip(),
+                            "source": item.source,
+                            "region": item.region,
+                            "posted_at": item.posted_at,
+                            "skills": [s.strip() for s in item.skills if s and s.strip()],
+                            "budget": item.budget,
+                            "proposals": item.proposals,
+                            "client": item.client,
+                            "filter_reasons": reasons,
+                        }
+                    },
                     upsert=True
                 )
                 inserted_filtered += 1
