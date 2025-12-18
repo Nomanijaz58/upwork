@@ -23,6 +23,61 @@ from ..schemas.jobs import (
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+@router.get("/latest", response_model=list[JobOut])
+async def get_latest_jobs(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    source: Optional[str] = Query(None, description="Filter by source (e.g., 'vollna', 'best_match')"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of jobs to return (default: 50)"),
+):
+    """
+    Get latest jobs sorted by posted date.
+    
+    Returns latest jobs sorted by posted_at in descending order (newest first).
+    This endpoint is designed for frontend polling every 10-15 seconds.
+    
+    Use this endpoint for:
+    - Frontend chatbot polling for new jobs
+    - Displaying latest available jobs
+    - Real-time job updates
+    
+    Returns jobs from jobs_raw collection (all jobs, regardless of filter status).
+    """
+    repo = JobsRawRepo(db)
+    
+    query = {}
+    if source:
+        query["source"] = source
+    
+    docs = await repo.find_many(
+        query,
+        skip=0,
+        limit=limit,
+        sort=[("posted_at", -1), ("created_at", -1)]  # Newest first
+    )
+    
+    jobs: list[JobOut] = []
+    for doc in docs:
+        jobs.append(
+            JobOut(
+                id=oid_str(doc["_id"]),
+                title=doc.get("title") or "",
+                description=doc.get("description") or "",
+                url=doc.get("url") or "",
+                source=doc.get("source") or "",
+                region=doc.get("region"),
+                posted_at=doc.get("posted_at"),
+                skills=doc.get("skills") or [],
+                budget=doc.get("budget"),
+                proposals=doc.get("proposals"),
+                client=doc.get("client") or {},
+                created_at=doc.get("created_at") or datetime.utcnow(),
+                updated_at=doc.get("updated_at") or datetime.utcnow(),
+            )
+        )
+    
+    return jobs
+
+
 @router.get("", response_model=list[JobOut])
 async def get_jobs(
     db: AsyncIOMotorDatabase = Depends(get_db),

@@ -16,6 +16,7 @@ from ..schemas.jobs import JobIngestRequest, JobIngestResponse
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/vollna", tags=["vollna"])
+webhook_router = APIRouter(prefix="/webhook", tags=["webhook"])
 security = HTTPBearer(auto_error=False)
 
 
@@ -129,4 +130,21 @@ async def vollna_webhook(
             status_code=500,
             detail=f"Failed to process Vollna webhook: {str(e)}"
         )
+
+
+# Alias endpoint for /webhook/vollna (matches user specification)
+@webhook_router.post("/vollna", response_model=JobIngestResponse)
+async def vollna_webhook_alias(
+    payload: Union[dict[str, Any], list[dict[str, Any]]],
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    _: None = Depends(_check_auth),
+):
+    """
+    Alias endpoint for /vollna/jobs to match specification.
+    
+    This endpoint is identical to POST /vollna/jobs but uses the /webhook/vollna path
+    as specified in the workflow requirements.
+    """
+    return await vollna_webhook(payload, request, db, _)
 

@@ -18,7 +18,10 @@ from .routers import (
     proposals_router,
     scoring_router,
     vollna_webhook_router,
+    vollna_sync_router,
 )
+from .routers.vollna_webhook import webhook_router
+from .routers.vollna_webhook import webhook_router
 
 
 @asynccontextmanager
@@ -46,6 +49,8 @@ app.include_router(portfolio_router)
 app.include_router(proposals_router)
 app.include_router(export_router)
 app.include_router(vollna_webhook_router)
+app.include_router(webhook_router)  # For /webhook/vollna endpoint
+app.include_router(vollna_sync_router)
 
 
 @app.get("/health")
