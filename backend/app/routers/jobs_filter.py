@@ -78,13 +78,12 @@ async def filter_jobs(
         
         # Build MongoDB query
         query = {}
+        and_conditions = []  # All filter conditions should be ANDed together
         
         # Platform filter
         if filters.platform:
             query["platform"] = filters.platform.lower()
-        elif filters.platform is None:
-            # Default to upwork if not specified
-            query["platform"] = {"$in": ["upwork", None]}  # Include jobs without platform or with upwork
+        # If no platform specified, don't filter by platform (show all)
         
         # Budget filters
         budget_query = {}
@@ -93,31 +92,35 @@ async def filter_jobs(
         if filters.budget_max is not None:
             budget_query["$lte"] = filters.budget_max
         if budget_query:
-            # Check both 'budget' and 'budget_value' fields
-            query["$or"] = [
-                {"budget": budget_query},
-                {"budget_value": budget_query},
-                {"hourly_rate": budget_query},
-                {"fixed_price": budget_query}
-            ]
+            # Check both 'budget' and 'budget_value' fields - use OR within budget check
+            and_conditions.append({
+                "$or": [
+                    {"budget": budget_query},
+                    {"budget_value": budget_query},
+                    {"hourly_rate": budget_query},
+                    {"fixed_price": budget_query}
+                ]
+            })
         
         # Keywords search (in title or description)
         if filters.keywords:
             keyword_regex = "|".join(filters.keywords)
-            query["$or"] = query.get("$or", [])
-            query["$or"].extend([
-                {"title": {"$regex": keyword_regex, "$options": "i"}},
-                {"description": {"$regex": keyword_regex, "$options": "i"}}
-            ])
+            and_conditions.append({
+                "$or": [
+                    {"title": {"$regex": keyword_regex, "$options": "i"}},
+                    {"description": {"$regex": keyword_regex, "$options": "i"}}
+                ]
+            })
         
         # Exclude keywords
         if filters.exclude_keywords:
             exclude_regex = "|".join(filters.exclude_keywords)
-            query["$and"] = query.get("$and", [])
-            query["$and"].extend([
-                {"title": {"$not": {"$regex": exclude_regex, "$options": "i"}}},
-                {"description": {"$not": {"$regex": exclude_regex, "$options": "i"}}}
-            ])
+            and_conditions.append({
+                "$and": [
+                    {"title": {"$not": {"$regex": exclude_regex, "$options": "i"}}},
+                    {"description": {"$not": {"$regex": exclude_regex, "$options": "i"}}}
+                ]
+            })
         
         # Proposals filter
         if filters.proposals_min is not None or filters.proposals_max is not None:
@@ -132,35 +135,43 @@ async def filter_jobs(
         # Client rating
         if filters.client_rating_min is not None:
             # Check various possible field names for client rating
-            query["$or"] = query.get("$or", [])
-            query["$or"].extend([
-                {"client.rating": {"$gte": filters.client_rating_min}},
-                {"client_rating": {"$gte": filters.client_rating_min}},
-                {"rating": {"$gte": filters.client_rating_min}}
-            ])
+            and_conditions.append({
+                "$or": [
+                    {"client.rating": {"$gte": filters.client_rating_min}},
+                    {"client_rating": {"$gte": filters.client_rating_min}},
+                    {"rating": {"$gte": filters.client_rating_min}}
+                ]
+            })
         
         # Client verification
         if filters.client_verified_payment is not None:
-            query["$or"] = query.get("$or", [])
-            query["$or"].extend([
-                {"client.payment_verified": filters.client_verified_payment},
-                {"client_payment_verified": filters.client_verified_payment},
-                {"payment_verified": filters.client_verified_payment}
-            ])
+            and_conditions.append({
+                "$or": [
+                    {"client.payment_verified": filters.client_verified_payment},
+                    {"client_payment_verified": filters.client_verified_payment},
+                    {"payment_verified": filters.client_verified_payment}
+                ]
+            })
         
         if filters.client_verified_phone is not None:
-            query["$or"] = query.get("$or", [])
-            query["$or"].extend([
-                {"client.phone_verified": filters.client_verified_phone},
-                {"client_phone_verified": filters.client_verified_phone},
-                {"phone_verified": filters.client_verified_phone}
-            ])
+            and_conditions.append({
+                "$or": [
+                    {"client.phone_verified": filters.client_verified_phone},
+                    {"client_phone_verified": filters.client_verified_phone},
+                    {"phone_verified": filters.client_verified_phone}
+                ]
+            })
         
         # Geographic filters (excluded countries)
         if filters.excluded_countries:
-            query["country"] = {"$nin": filters.excluded_countries}
-            query["location"] = {"$nin": filters.excluded_countries}
-            query["client.country"] = {"$nin": filters.excluded_countries}
+            # Job should NOT be from excluded countries (check multiple possible fields)
+            and_conditions.append({
+                "$and": [
+                    {"country": {"$nin": filters.excluded_countries}},
+                    {"location": {"$nin": filters.excluded_countries}},
+                    {"client.country": {"$nin": filters.excluded_countries}}
+                ]
+            })
         
         # Skills filter
         if filters.required_skills:
@@ -174,16 +185,29 @@ async def filter_jobs(
             if filters.posted_before:
                 date_query["$lte"] = filters.posted_before
             if date_query:
-                query["$or"] = query.get("$or", [])
-                query["$or"].extend([
-                    {"posted_at": date_query},
-                    {"posted_on": date_query},
-                    {"created_at": date_query}
-                ])
+                and_conditions.append({
+                    "$or": [
+                        {"posted_at": date_query},
+                        {"posted_on": date_query},
+                        {"created_at": date_query}
+                    ]
+                })
         
         # Invite filter (if include_invite_sent is False, exclude jobs with invite_sent=true)
         if filters.include_invite_sent is False:
             query["invite_sent"] = {"$ne": True}
+        
+        # Combine all AND conditions
+        if and_conditions:
+            if query:
+                # If we have both direct query fields and AND conditions, combine them
+                query["$and"] = and_conditions
+            else:
+                # If only AND conditions, use them directly
+                if len(and_conditions) == 1:
+                    query.update(and_conditions[0])
+                else:
+                    query["$and"] = and_conditions
         
         logger.debug(f"MongoDB query: {query}")
         
