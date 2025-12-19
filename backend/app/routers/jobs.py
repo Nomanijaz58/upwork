@@ -21,6 +21,7 @@ from ..schemas.jobs import (
 )
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+api_router = APIRouter(prefix="/api", tags=["api"])
 
 
 @router.get("/latest", response_model=list[JobOut])

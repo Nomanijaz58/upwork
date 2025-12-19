@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .core.logging import setup_logging
 from .db.mongo import close_mongo, connect_mongo
@@ -21,7 +22,7 @@ from .routers import (
     vollna_sync_router,
 )
 from .routers.vollna_webhook import webhook_router
-from .routers.vollna_webhook import webhook_router
+from .routers.jobs import api_router
 
 
 @asynccontextmanager
@@ -39,9 +40,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8081",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:8081",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        # Add production frontend URL when deployed
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(config_router)
 app.include_router(ingest_router)
 app.include_router(jobs_router)
+app.include_router(api_router)  # For /api/* endpoints (frontend compatibility)
 app.include_router(feeds_router)
 app.include_router(ai_router)
 app.include_router(scoring_router)
