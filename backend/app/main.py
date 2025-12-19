@@ -16,6 +16,7 @@ from .routers import (
     feeds_router,
     ingest_router,
     jobs_router,
+    jobs_filter_router,
     portfolio_router,
     proposals_router,
     scoring_router,
@@ -66,6 +67,7 @@ app.add_middleware(
 app.include_router(config_router)
 app.include_router(ingest_router)
 app.include_router(jobs_router)
+app.include_router(jobs_filter_router)  # Job filtering endpoint
 app.include_router(api_router)  # For /api/* endpoints (frontend compatibility)
 app.include_router(feeds_router)
 app.include_router(ai_router)

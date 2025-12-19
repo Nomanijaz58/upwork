@@ -10,6 +10,7 @@ from .scoring import router as scoring_router
 from .vollna_webhook import router as vollna_webhook_router
 from .vollna_sync import router as vollna_sync_router
 from .vollna_simple import router as vollna_simple_router
+from .jobs_filter import router as jobs_filter_router
 
 __all__ = [
     "ai_router",
@@ -18,6 +19,7 @@ __all__ = [
     "feeds_router",
     "ingest_router",
     "jobs_router",
+    "jobs_filter_router",
     "portfolio_router",
     "proposals_router",
     "scoring_router",
