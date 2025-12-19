@@ -79,6 +79,21 @@ async def get_latest_jobs(
     return jobs
 
 
+# Alias endpoint for /api/jobs (matches frontend expectation)
+@api_router.get("/jobs", response_model=list[JobOut])
+async def get_jobs_api(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    source: Optional[str] = Query(None, description="Filter by source (e.g., 'vollna', 'best_match')"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of jobs to return (default: 50)"),
+):
+    """
+    Alias endpoint for /jobs/latest to match frontend API path.
+    
+    Frontend calls /api/jobs, this endpoint provides compatibility.
+    """
+    return await get_latest_jobs(db, source, limit)
+
+
 @router.get("", response_model=list[JobOut])
 async def get_jobs(
     db: AsyncIOMotorDatabase = Depends(get_db),
