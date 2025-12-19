@@ -151,22 +151,50 @@ async def filter_jobs(
         
         # Client verification
         if filters.client_verified_payment is not None:
-            and_conditions.append({
-                "$or": [
-                    {"client.payment_verified": filters.client_verified_payment},
-                    {"client_payment_verified": filters.client_verified_payment},
-                    {"payment_verified": filters.client_verified_payment}
-                ]
-            })
+            if filters.client_verified_payment:
+                # If requiring verified payment, check if field exists and is true
+                and_conditions.append({
+                    "$or": [
+                        {"client.payment_verified": True},
+                        {"client_payment_verified": True},
+                        {"payment_verified": True}
+                    ]
+                })
+            else:
+                # If NOT requiring verified payment, allow jobs without the field or with false
+                and_conditions.append({
+                    "$or": [
+                        {"client.payment_verified": {"$exists": False}},
+                        {"client.payment_verified": False},
+                        {"client_payment_verified": {"$exists": False}},
+                        {"client_payment_verified": False},
+                        {"payment_verified": {"$exists": False}},
+                        {"payment_verified": False}
+                    ]
+                })
         
         if filters.client_verified_phone is not None:
-            and_conditions.append({
-                "$or": [
-                    {"client.phone_verified": filters.client_verified_phone},
-                    {"client_phone_verified": filters.client_verified_phone},
-                    {"phone_verified": filters.client_verified_phone}
-                ]
-            })
+            if filters.client_verified_phone:
+                # If requiring verified phone, check if field exists and is true
+                and_conditions.append({
+                    "$or": [
+                        {"client.phone_verified": True},
+                        {"client_phone_verified": True},
+                        {"phone_verified": True}
+                    ]
+                })
+            else:
+                # If NOT requiring verified phone, allow jobs without the field or with false
+                and_conditions.append({
+                    "$or": [
+                        {"client.phone_verified": {"$exists": False}},
+                        {"client.phone_verified": False},
+                        {"client_phone_verified": {"$exists": False}},
+                        {"client_phone_verified": False},
+                        {"phone_verified": {"$exists": False}},
+                        {"phone_verified": False}
+                    ]
+                })
         
         # Geographic filters (excluded countries)
         if filters.excluded_countries:
