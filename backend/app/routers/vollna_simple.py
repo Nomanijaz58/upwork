@@ -17,18 +17,46 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["vollna-simple"])
 
 
-def _check_auth(x_n8n_secret: Optional[str] = Header(default=None, alias="X-N8N-Secret")) -> None:
-    """Check n8n secret for webhook authentication."""
+def _check_auth(
+    request: Request,
+    x_n8n_secret: Optional[str] = Header(default=None, alias="X-N8N-Secret")
+) -> None:
+    """
+    Check authentication via Bearer token (from Vollna) or X-N8N-Secret header (from n8n).
+    
+    Supports both:
+    - Bearer Token: Authorization: Bearer <token> (Vollna uses this)
+    - X-N8N-Secret header: X-N8N-Secret: <token> (n8n uses this)
+    """
     from ..core.settings import settings
     
-    if not settings.N8N_SHARED_SECRET:
-        # If no secret configured, allow all requests (development mode)
-        logger.warning("N8N_SHARED_SECRET not configured - allowing all requests")
+    # Get the expected token (prefer VOLLNA_BEARER_TOKEN, fallback to N8N_SHARED_SECRET)
+    expected_token = settings.VOLLNA_BEARER_TOKEN or settings.N8N_SHARED_SECRET
+    
+    if not expected_token:
+        # If no token configured, allow all requests (development mode)
+        logger.warning("VOLLNA_BEARER_TOKEN and N8N_SHARED_SECRET not configured - allowing all requests")
         return
     
-    if not x_n8n_secret or x_n8n_secret != settings.N8N_SHARED_SECRET:
-        logger.warning(f"Invalid n8n secret provided")
-        raise HTTPException(status_code=401, detail="invalid n8n secret")
+    # Check Bearer token (from Vollna)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        bearer_token = auth_header.replace("Bearer ", "").strip()
+        if bearer_token == expected_token:
+            logger.debug("✅ Bearer token authentication successful")
+            return
+        else:
+            logger.warning(f"Invalid Bearer token provided")
+            raise HTTPException(status_code=401, detail="invalid token")
+    
+    # Check X-N8N-Secret header (from n8n, for backward compatibility)
+    if x_n8n_secret and x_n8n_secret == expected_token:
+        logger.debug("✅ X-N8N-Secret authentication successful")
+        return
+    
+    # No valid authentication found
+    logger.warning(f"Authentication failed - no valid Bearer token or X-N8N-Secret provided")
+    raise HTTPException(status_code=401, detail="invalid token")
 
 
 @router.post("/webhook/vollna")

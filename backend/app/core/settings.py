@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # n8n ingestion security (optional, but recommended)
     N8N_SHARED_SECRET: Optional[str] = None
     
+    # Vollna Bearer Token (for webhook authentication)
+    VOLLNA_BEARER_TOKEN: Optional[str] = Field(
+        None,
+        description="Bearer token for Vollna webhook authentication. If not set, uses N8N_SHARED_SECRET as fallback."
+    )
+    
     # CORS configuration
     CORS_ORIGINS: Optional[str] = Field(
         default="http://localhost:8080,http://localhost:8081,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081",
