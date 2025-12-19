@@ -1,66 +1,116 @@
 #!/bin/bash
 
-# Test Vollna Webhook Integration
-# This script tests the Vollna webhook endpoint with sample data
+# Test Vollna Webhook and Monitor Jobs
+# This script helps verify Vollna webhook is working and jobs are being received
 
 API_URL="https://upwork-xxsc.onrender.com"
-BEARER_TOKEN="9b9cd907b0d795fef45708c7882138819751729c0ca6f30ac8393f100b2aa394"
+# For local testing, use: API_URL="http://localhost:8000"
+SECRET="9b9cd907b0d795fef45708c7882138819751729c0ca6f30ac8393f100b2aa394"
 
-echo "🧪 Testing Vollna Integration"
-echo "=============================="
+echo "🔍 Vollna Webhook Testing & Monitoring"
+echo "======================================"
 echo ""
 
-# Test 1: Health Check
-echo "1️⃣  Testing Health Endpoint..."
-HEALTH=$(curl -s "$API_URL/health")
-echo "Response: $HEALTH"
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Function to check endpoint
+check_endpoint() {
+    local endpoint=$1
+    local description=$2
+    
+    echo -n "Checking $description... "
+    response=$(curl -s -w "\n%{http_code}" "$API_URL$endpoint")
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" = "200" ]; then
+        echo -e "${GREEN}✅ OK${NC}"
+        echo "$body" | python3 -m json.tool 2>/dev/null || echo "$body"
+    else
+        echo -e "${RED}❌ Failed (HTTP $http_code)${NC}"
+        echo "$body"
+    fi
+    echo ""
+}
+
+# 1. Check health
+echo "1️⃣  Backend Health Check"
+check_endpoint "/health" "Backend health"
+
+# 2. Check current jobs count
+echo "2️⃣  Current Jobs in Database"
+check_endpoint "/jobs/all" "All jobs from Vollna"
+
+# 3. Send test job via webhook
+echo "3️⃣  Sending Test Job via Webhook"
+TIMESTAMP=$(date +%s)
+TEST_JOB='[{
+    "title": "Test Job from Vollna Monitor '"$TIMESTAMP"'",
+    "url": "https://www.upwork.com/jobs/~test'"$TIMESTAMP"'",
+    "budget": 75.0,
+    "client_name": "Test Client",
+    "description": "This is a test job sent via webhook monitoring script",
+    "skills": ["Python", "FastAPI", "Testing"],
+    "proposals": 5,
+    "source": "vollna"
+}]'
+
+echo "Sending job..."
+response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/webhook/vollna" \
+    -H "Content-Type: application/json" \
+    -H "X-N8N-Secret: $SECRET" \
+    -d "$TEST_JOB")
+
+http_code=$(echo "$response" | tail -n1)
+body=$(echo "$response" | sed '$d')
+
+if [ "$http_code" = "200" ]; then
+    echo -e "${GREEN}✅ Webhook accepted job${NC}"
+    echo "$body" | python3 -m json.tool
+else
+    echo -e "${RED}❌ Webhook failed (HTTP $http_code)${NC}"
+    echo "$body"
+fi
 echo ""
 
-# Test 2: Feed Status
-echo "2️⃣  Checking Feed Status..."
-FEED_STATUS=$(curl -s "$API_URL/feeds/status?source=vollna")
-echo "Response: $FEED_STATUS"
-echo ""
-
-# Test 3: Get Latest Jobs
-echo "3️⃣  Getting Latest Jobs from Vollna..."
-JOBS=$(curl -s "$API_URL/jobs?source=vollna&limit=5")
-echo "Response: $JOBS"
-echo ""
-
-# Test 4: Test Vollna Webhook
-echo "4️⃣  Testing Vollna Webhook Endpoint..."
-WEBHOOK_RESPONSE=$(curl -s -X POST "$API_URL/vollna/jobs" \
-  -H "Authorization: Bearer $BEARER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jobs": [
-      {
-        "title": "Test Job from Vollna",
-        "description": "This is a test job to verify the webhook integration is working correctly",
-        "url": "https://www.upwork.com/jobs/~test_'$(date +%s)'",
-        "budget": 50.0,
-        "proposals": 5,
-        "skills": ["Python", "FastAPI", "MongoDB"],
-        "postedOn": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"
-      }
-    ]
-  }')
-
-echo "Response: $WEBHOOK_RESPONSE"
-echo ""
-
-# Test 5: Verify Job Was Stored
-echo "5️⃣  Verifying Job Was Stored..."
+# 4. Wait and check jobs again
+echo "4️⃣  Verifying Job Was Stored"
 sleep 2
-LATEST_JOBS=$(curl -s "$API_URL/jobs?source=vollna&limit=1")
-echo "Latest Jobs: $LATEST_JOBS"
+check_endpoint "/jobs/all" "All jobs (should include new test job)"
+
+# 5. Check filter endpoint
+echo "5️⃣  Testing Filter Endpoint"
+FILTER_PAYLOAD='{
+    "keywords": ["Python", "Test"],
+    "budget_min": 50,
+    "budget_max": 100
+}'
+
+echo "Testing with filters: $FILTER_PAYLOAD"
+response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/jobs/filter/vollna" \
+    -H "Content-Type: application/json" \
+    -d "$FILTER_PAYLOAD")
+
+http_code=$(echo "$response" | tail -n1)
+body=$(echo "$response" | sed '$d')
+
+if [ "$http_code" = "200" ]; then
+    echo -e "${GREEN}✅ Filter endpoint working${NC}"
+    echo "$body" | python3 -c "import sys, json; d=json.load(sys.stdin); print(f'Found {d.get(\"count\", 0)} jobs'); [print(f'  - {j.get(\"title\")} (${j.get(\"budget\")})') for j in d.get('jobs', [])[:5]]" 2>/dev/null || echo "$body"
+else
+    echo -e "${RED}❌ Filter failed (HTTP $http_code)${NC}"
+    echo "$body"
+fi
 echo ""
 
 echo "✅ Testing Complete!"
 echo ""
-echo "Next Steps:"
-echo "1. Check Swagger UI: $API_URL/docs"
-echo "2. Test /jobs/search endpoint with filters"
-echo "3. Test /jobs/recommend for AI recommendations"
-
+echo "📋 Next Steps:"
+echo "1. Check Render logs for webhook activity"
+echo "2. Monitor frontend at http://localhost:8080"
+echo "3. Verify jobs appear in dashboard"
+echo "4. Check Vollna extension/n8n workflow is sending jobs"
