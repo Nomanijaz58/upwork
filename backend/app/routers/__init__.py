@@ -9,6 +9,7 @@ from .proposals import router as proposals_router
 from .scoring import router as scoring_router
 from .vollna_webhook import router as vollna_webhook_router
 from .vollna_sync import router as vollna_sync_router
+from .vollna_simple import router as vollna_simple_router
 
 __all__ = [
     "ai_router",
@@ -22,6 +23,7 @@ __all__ = [
     "scoring_router",
     "vollna_webhook_router",
     "vollna_sync_router",
+    "vollna_simple_router",
 ]
 
 

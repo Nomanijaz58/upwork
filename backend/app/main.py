@@ -21,6 +21,7 @@ from .routers import (
     scoring_router,
     vollna_webhook_router,
     vollna_sync_router,
+    vollna_simple_router,
 )
 from .routers.vollna_webhook import webhook_router
 from .routers.jobs import api_router
@@ -43,12 +44,16 @@ app = FastAPI(
 
 # Configure CORS from environment variables
 # Parse CORS origins from environment variable (comma-separated)
-cors_origins_str = settings.CORS_ORIGINS or "http://localhost:8081,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8081"
+cors_origins_str = settings.CORS_ORIGINS or "http://localhost:8080,http://localhost:8081,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:8081"
 cors_origins = [
     origin.strip()
     for origin in cors_origins_str.split(",")
     if origin.strip()
 ]
+
+# Add localhost:8000 for local backend testing
+if "http://localhost:8000" not in cors_origins:
+    cors_origins.append("http://localhost:8000")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,8 +73,11 @@ app.include_router(scoring_router)
 app.include_router(portfolio_router)
 app.include_router(proposals_router)
 app.include_router(export_router)
-app.include_router(vollna_webhook_router)
-app.include_router(webhook_router)  # For /webhook/vollna endpoint
+# Simple pipeline router - handles /webhook/vollna and /jobs/all
+app.include_router(vollna_simple_router)  # MUST BE FIRST to catch /webhook/vollna
+# Old webhook routers (commented out to let simple router handle /webhook/vollna)
+# app.include_router(vollna_webhook_router)
+# app.include_router(webhook_router)  # Old /webhook/vollna endpoint
 app.include_router(vollna_sync_router)
 
 

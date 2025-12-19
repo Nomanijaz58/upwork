@@ -131,17 +131,33 @@ def _normalize_vollna_payload(vollna_data: dict[str, Any], source: str = "vollna
             else:
                 url = f"https://www.upwork.com/jobs/{url}"
         
-        # Validate required fields
+        # Validate required fields: title, url, client_name, budget
         if not title:
             logger.warning(f"Skipping job {idx}: missing title")
             continue
         
-        if not description:
-            logger.warning(f"Skipping job {idx}: missing description")
-            continue
-        
         if not url:
             logger.warning(f"Skipping job {idx}: missing URL")
+            continue
+        
+        # Client name validation (extracted above)
+        if not client_name:
+            logger.warning(f"Skipping job {idx}: missing client name")
+            continue
+        
+        # Budget validation (extracted above)
+        if budget is None:
+            logger.warning(f"Skipping job {idx}: missing budget")
+            continue
+        
+        # Validate budget is a positive number
+        try:
+            budget = float(budget)
+            if budget < 0:
+                logger.warning(f"Skipping job {idx}: invalid budget (must be positive): {budget}")
+                continue
+        except (ValueError, TypeError):
+            logger.warning(f"Skipping job {idx}: invalid budget format: {budget}")
             continue
         
         # Extract posted_at
@@ -188,9 +204,18 @@ def _normalize_vollna_payload(vollna_data: dict[str, Any], source: str = "vollna
                     skills.extend([s.strip() for s in skills_data.split(",") if s.strip()])
                 break
         
-        # Extract budget (normalize to float)
+        # Extract client name (required)
+        client_name = (
+            job.get("client_name") or
+            job.get("clientName") or
+            (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else None) or
+            (job.get("client", {}).get("clientName") if isinstance(job.get("client"), dict) else None) or
+            ""
+        ).strip()
+        
+        # Extract budget (required - normalize to float)
         budget = None
-        budget_fields = ["budget", "hourlyRate", "fixedPrice", "rate", "price"]
+        budget_fields = ["budget", "hourlyRate", "fixedPrice", "rate", "price", "budgetValue", "budget_value"]
         for field in budget_fields:
             if field in job:
                 budget_value = job[field]
@@ -242,6 +267,7 @@ def _normalize_vollna_payload(vollna_data: dict[str, Any], source: str = "vollna
         if "client" in job and isinstance(job["client"], dict):
             client_data = job["client"]
             client = {
+                "name": client_name,  # Ensure name is in client dict
                 "payment_verified": client_data.get("paymentVerified", client_data.get("payment_verified", False)),
                 "phone_verified": client_data.get("phoneVerified", client_data.get("phone_verified", False)),
                 "rating": client_data.get("rating") or client_data.get("totalRating"),
@@ -250,17 +276,21 @@ def _normalize_vollna_payload(vollna_data: dict[str, Any], source: str = "vollna
                 "hiring_rate": client_data.get("hiringRate") or client_data.get("hiring_rate"),
             }
             client = {k: v for k, v in client.items() if v is not None}
+        else:
+            # If no client dict, create one with name
+            client = {"name": client_name}
         
         # Create normalized item
         item = JobIngestItem(
             title=title,
-            description=description,
             url=url,
+            client_name=client_name,
+            budget=budget if budget is not None else 0.0,  # Budget is required, default to 0 if not found
+            description=description,  # Now optional
             source=source,
             region=region,
             posted_at=posted_at,
             skills=list(set(skills)),  # Remove duplicates
-            budget=budget,
             proposals=proposals,
             client=client,
             raw={
@@ -408,13 +438,9 @@ async def ingest_jobs(
 
     for idx, item in enumerate(payload.items):
         try:
-            # Validate required fields
+            # Validate required fields: title, url, client_name, budget
             if not item.title or not item.title.strip():
                 errors.append(f"Job {idx}: Missing or empty title")
-                continue
-            
-            if not item.description or not item.description.strip():
-                errors.append(f"Job {idx}: Missing or empty description")
                 continue
             
             if not item.url or not item.url.strip():
@@ -426,6 +452,21 @@ async def ingest_jobs(
                 errors.append(f"Job {idx}: Invalid URL format: {item.url}")
                 continue
             
+            # Validate client name
+            client_name = item.client_name if hasattr(item, 'client_name') else (item.client.get("name") if item.client and isinstance(item.client, dict) else None)
+            if not client_name or not str(client_name).strip():
+                errors.append(f"Job {idx}: Missing or empty client name")
+                continue
+            
+            # Validate budget
+            if item.budget is None:
+                errors.append(f"Job {idx}: Missing budget")
+                continue
+            
+            if not isinstance(item.budget, (int, float)) or item.budget < 0:
+                errors.append(f"Job {idx}: Invalid budget (must be a positive number): {item.budget}")
+                continue
+            
             # Normalize URL (remove trailing slash, etc.)
             normalized_url = item.url.rstrip("/")
             
@@ -433,17 +474,25 @@ async def ingest_jobs(
             sources_seen.add(item.source)
             
             now = datetime.utcnow()
+            
+            # Extract client name (from client_name field or client.name)
+            client_name_value = item.client_name if hasattr(item, 'client_name') else (item.client.get("name") if item.client and isinstance(item.client, dict) else "")
+            
+            # Ensure client dict has name field
+            client_dict = item.client.copy() if item.client else {}
+            client_dict["name"] = client_name_value.strip()
+            
             raw_doc = {
                 "title": item.title.strip(),
-                "description": item.description.strip(),
+                "description": (item.description or "").strip(),  # Description is now optional
                 "url": normalized_url,
                 "source": item.source,
                 "region": item.region,
                 "posted_at": item.posted_at,
                 "skills": [s.strip() for s in item.skills if s and s.strip()],  # Clean skills
-                "budget": item.budget,  # Store budget if provided
+                "budget": float(item.budget),  # Budget is now required
                 "proposals": item.proposals,  # Store proposal count if provided
-                "client": item.client,
+                "client": client_dict,  # Client dict with name
                 "raw": item.raw,
                 "created_at": now,
                 "updated_at": now,

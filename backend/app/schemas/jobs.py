@@ -5,14 +5,15 @@ from pydantic import BaseModel, Field
 
 
 class JobIngestItem(BaseModel):
-    title: str
-    description: str
-    url: str
+    title: str = Field(..., description="Job title (required)")
+    url: str = Field(..., description="Job URL (required)")
+    client_name: str = Field(..., description="Client name (required)")
+    budget: float = Field(..., description="Job budget in USD (required)")
+    description: Optional[str] = Field(None, description="Job description (optional)")
     source: str
     region: Optional[str] = None
     posted_at: Optional[datetime] = None
     skills: list[str] = Field(default_factory=list)
-    budget: Optional[float] = Field(None, description="Job budget in USD (hourly rate or fixed price)")
     proposals: Optional[int] = Field(None, description="Number of proposals received")
     client: dict[str, Any] = Field(default_factory=dict, description="Client metadata from feed if available")
     raw: dict[str, Any] = Field(default_factory=dict, description="Original source payload (unmodified)")
