@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """
-Monitor Vollna Jobs - Watch for new jobs and display them in real-time
+⚠️  DISABLED - DO NOT RUN THIS SCRIPT
+This script is disabled to prevent interference with real job monitoring.
+Use 'python3 analyze_jobs.py' instead to check current jobs.
 """
-import time
-import json
-import requests
-from datetime import datetime
-from typing import List, Dict, Any
+import sys
 
-API_URL = "https://upwork-xxsc.onrender.com"
+print("❌ ERROR: This script is DISABLED.")
+print("   Use 'python3 analyze_jobs.py' to check current jobs instead.")
+print("   Exiting...")
+sys.exit(1)
+
+# Original code below (disabled):
+# Monitor Vollna Jobs - Watch for new jobs and display them in real-time
+# import time
+# import json
+# import requests
+# from datetime import datetime
+# from typing import List, Dict, Any
+# API_URL = "https://upwork-xxsc.onrender.com"
 # For local: API_URL = "http://localhost:8000"
 
 def get_all_jobs() -> Dict[str, Any]:

@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# ⚠️  DISABLED - DO NOT RUN THIS SCRIPT
+# This script creates TEST jobs that pollute the database
+# Use verify_vollna_fix.py instead for verification
+
+echo "❌ ERROR: This script is DISABLED to prevent test job creation."
+echo "   Use 'python3 verify_vollna_fix.py' for verification instead."
+echo "   Exiting..."
+exit 1
+
 # Test Vollna Webhook and Monitor Jobs
 # This script helps verify Vollna webhook is working and jobs are being received
 
