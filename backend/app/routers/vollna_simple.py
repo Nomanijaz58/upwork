@@ -48,7 +48,14 @@ async def vollna_webhook(
     
     Stores ALL jobs in vollna_jobs collection without filtering or modification.
     """
-    logger.info(f"Received Vollna webhook payload: {type(payload).__name__}")
+    # 🔹 Enhanced debug logging
+    logger.info("🔹 Webhook hit! /webhook/vollna")
+    logger.info(f"🔹 Payload type: {type(payload).__name__}")
+    logger.info(f"🔹 Payload received: {payload}")
+    
+    # Log headers for debugging
+    headers = dict(request.headers)
+    logger.debug(f"🔹 Request headers: {headers}")
     
     try:
         # Normalize payload to list of jobs
