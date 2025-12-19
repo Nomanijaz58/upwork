@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.logging import setup_logging
+from .core.settings import settings
 from .db.mongo import close_mongo, connect_mongo
 from .routers import (
     ai_router,

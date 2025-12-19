@@ -32,6 +32,12 @@ class Settings(BaseSettings):
 
     # n8n ingestion security (optional, but recommended)
     N8N_SHARED_SECRET: Optional[str] = None
+    
+    # CORS configuration
+    CORS_ORIGINS: Optional[str] = Field(
+        default="http://localhost:8081,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8081",
+        description="Comma-separated list of allowed CORS origins"
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
