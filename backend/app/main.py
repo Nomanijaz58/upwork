@@ -43,9 +43,10 @@ app = FastAPI(
 
 # Configure CORS from environment variables
 # Parse CORS origins from environment variable (comma-separated)
+cors_origins_str = settings.CORS_ORIGINS or "http://localhost:8081,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8081"
 cors_origins = [
     origin.strip()
-    for origin in settings.CORS_ORIGINS.split(",")
+    for origin in cors_origins_str.split(",")
     if origin.strip()
 ]
 
