@@ -82,7 +82,13 @@ async def filter_jobs(
         
         # Platform filter
         if filters.platform:
-            query["platform"] = filters.platform.lower()
+            # Check if platform field exists and matches, or if platform field doesn't exist (default to upwork)
+            and_conditions.append({
+                "$or": [
+                    {"platform": filters.platform.lower()},
+                    {"platform": {"$exists": False}}  # If no platform field, allow (defaults to upwork)
+                ]
+            })
         # If no platform specified, don't filter by platform (show all)
         
         # Budget filters
@@ -165,11 +171,16 @@ async def filter_jobs(
         # Geographic filters (excluded countries)
         if filters.excluded_countries:
             # Job should NOT be from excluded countries (check multiple possible fields)
+            # Use $or so if any field matches excluded country, exclude the job
+            # If field doesn't exist, it won't match (which is what we want)
             and_conditions.append({
-                "$and": [
-                    {"country": {"$nin": filters.excluded_countries}},
-                    {"location": {"$nin": filters.excluded_countries}},
-                    {"client.country": {"$nin": filters.excluded_countries}}
+                "$or": [
+                    {"country": {"$exists": False}},  # No country field = allow
+                    {"country": {"$nin": filters.excluded_countries}},  # Country not in excluded list
+                    {"location": {"$exists": False}},  # No location field = allow
+                    {"location": {"$nin": filters.excluded_countries}},  # Location not in excluded list
+                    {"client.country": {"$exists": False}},  # No client.country = allow
+                    {"client.country": {"$nin": filters.excluded_countries}}  # Client country not in excluded list
                 ]
             })
         
