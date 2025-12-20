@@ -111,7 +111,10 @@ async def vollna_webhook(
                 return {"received": 0, "inserted": 0, "message": "Test event skipped"}
             
             # Try to find jobs array in various locations
-            if "jobs" in payload:
+            # Vollna sends "projects" array, not "jobs"
+            if "projects" in payload:
+                jobs = payload["projects"] if isinstance(payload["projects"], list) else [payload["projects"]]
+            elif "jobs" in payload:
                 jobs = payload["jobs"] if isinstance(payload["jobs"], list) else [payload["jobs"]]
             elif "items" in payload:
                 jobs = payload["items"] if isinstance(payload["items"], list) else [payload["items"]]
