@@ -1,8 +1,11 @@
 """
 Simple Vollna pipeline - receive and expose all jobs without filtering.
 """
+import re
 from typing import Any, Optional, Union
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, unquote
+from email.utils import parsedate_to_datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -79,7 +82,18 @@ async def vollna_webhook(
     # 🔹 Enhanced debug logging
     logger.info("🔹 Webhook hit! /webhook/vollna")
     logger.info(f"🔹 Payload type: {type(payload).__name__}")
-    logger.info(f"🔹 Payload received: {payload}")
+    
+    # Log payload structure (truncate if too large, but show keys)
+    if isinstance(payload, dict):
+        logger.info(f"🔹 Payload keys: {list(payload.keys())}")
+        # Log full payload only if it's not too large
+        payload_str = str(payload)
+        if len(payload_str) < 2000:
+            logger.info(f"🔹 Payload received: {payload}")
+        else:
+            logger.info(f"🔹 Payload received (truncated): {payload_str[:500]}...")
+    else:
+        logger.info(f"🔹 Payload received (list with {len(payload) if isinstance(payload, list) else 'unknown'} items)")
     
     # Log headers for debugging
     headers = dict(request.headers)
@@ -91,15 +105,46 @@ async def vollna_webhook(
         if isinstance(payload, list):
             jobs = payload
         elif isinstance(payload, dict):
+            # Skip test events
+            if payload.get("event") == "webhook.test":
+                logger.info("Skipping test webhook event")
+                return {"received": 0, "inserted": 0, "message": "Test event skipped"}
+            
+            # Try to find jobs array in various locations
             if "jobs" in payload:
                 jobs = payload["jobs"] if isinstance(payload["jobs"], list) else [payload["jobs"]]
             elif "items" in payload:
                 jobs = payload["items"] if isinstance(payload["items"], list) else [payload["items"]]
             elif "data" in payload:
-                jobs = payload["data"] if isinstance(payload["data"], list) else [payload["data"]]
+                # data might be a list or a dict with jobs
+                data = payload["data"]
+                if isinstance(data, list):
+                    jobs = data
+                elif isinstance(data, dict):
+                    if "jobs" in data:
+                        jobs = data["jobs"] if isinstance(data["jobs"], list) else [data["jobs"]]
+                    elif "items" in data:
+                        jobs = data["items"] if isinstance(data["items"], list) else [data["items"]]
+            elif "filter" in payload:
+                # Vollna might send filter metadata with jobs nested
+                filter_data = payload.get("filter", {})
+                if isinstance(filter_data, dict):
+                    # Check if jobs are in filter object
+                    if "jobs" in filter_data:
+                        jobs = filter_data["jobs"] if isinstance(filter_data["jobs"], list) else [filter_data["jobs"]]
+                    elif "items" in filter_data:
+                        jobs = filter_data["items"] if isinstance(filter_data["items"], list) else [filter_data["items"]]
+                # Also check if jobs array exists at root level alongside filter
+                if "jobs" in payload and not jobs:
+                    jobs = payload["jobs"] if isinstance(payload["jobs"], list) else [payload["jobs"]]
             else:
-                # Single job object
-                jobs = [payload]
+                # Check if this is a single job object (has title and url)
+                if payload.get("title") or payload.get("url"):
+                    jobs = [payload]
+                else:
+                    # Log full payload structure for debugging
+                    logger.warning(f"Could not extract jobs from payload structure. Keys: {list(payload.keys())}")
+                    logger.debug(f"Full payload: {payload}")
         else:
             raise HTTPException(
                 status_code=400,
@@ -108,9 +153,14 @@ async def vollna_webhook(
         
         if not jobs:
             logger.warning("No jobs found in payload")
+            logger.warning(f"Payload structure: type={type(payload).__name__}, keys={list(payload.keys()) if isinstance(payload, dict) else 'N/A'}")
             return {"received": 0, "inserted": 0, "message": "No jobs in payload"}
         
         logger.info(f"Processing {len(jobs)} jobs from Vollna")
+        # Log structure of first job to understand format
+        if jobs and isinstance(jobs[0], dict):
+            logger.info(f"First job structure - keys: {list(jobs[0].keys())[:15]}")
+            logger.debug(f"First job sample: {str(jobs[0])[:500]}")
         
         repo = VollnaJobsRepo(db)
         received_at = datetime.utcnow()
@@ -124,9 +174,14 @@ async def vollna_webhook(
                     logger.warning(f"Skipping job {idx}: not a dict")
                     continue
                 
-                # 🛑 Skip test messages and test jobs
+                # 🛑 Skip test messages and test jobs (already handled at payload level, but double-check)
                 if job.get("event") == "webhook.test":
                     logger.info(f"Skipping test webhook payload (event: webhook.test)")
+                    continue
+                
+                # Skip filter metadata objects (they don't have job data)
+                if "filter" in job and not (job.get("title") or job.get("url")):
+                    logger.debug(f"Skipping filter metadata object: {job.get('filter', {}).get('name', 'unknown')}")
                     continue
                 
                 # Get title (check multiple possible fields)
@@ -135,26 +190,89 @@ async def vollna_webhook(
                     logger.info(f"Skipping test job: {job_title}")
                     continue
                 
-                # ✅ Only process if it has a title and URL
+                # ✅ Extract URL - handle Vollna tracking links
                 job_url = job.get("url") or job.get("job_url") or job.get("link") or ""
+                
+                # Extract real Upwork URL from Vollna tracking links
+                # Format: https://www.vollna.com/go?...&url=https%253A%2F%2Fwww.upwork.com%2Fjobs%2F~
+                if job_url and "vollna.com/go" in job_url and "url=" in job_url:
+                    try:
+                        parsed = urlparse(job_url)
+                        params = parse_qs(parsed.query)
+                        if "url" in params:
+                            # Double URL encoding: %253A becomes %3A becomes :
+                            decoded_url = unquote(unquote(params["url"][0]))
+                            job_url = decoded_url
+                            logger.debug(f"Extracted Upwork URL from tracking link: {job_url[:50]}...")
+                    except Exception as e:
+                        logger.warning(f"Failed to extract URL from tracking link: {e}")
+                        # Keep original URL if extraction fails
+                
                 if not job_title or not job_url:
-                    logger.warning(f"Skipping incomplete job payload (missing title or URL): title={bool(job_title)}, url={bool(job_url)}")
+                    # Log the actual job structure to understand what Vollna is sending
+                    logger.warning(
+                        f"Skipping incomplete job payload (missing title or URL): "
+                        f"title={bool(job_title)}, url={bool(job_url)}, "
+                        f"job_keys={list(job.keys())[:10]}, "
+                        f"sample_job={str(job)[:200]}"
+                    )
                     continue
+                
+                # Extract description - handle CDATA from RSS
+                description = job.get("description") or job.get("job_description") or ""
+                # Clean HTML/CDATA tags if present
+                if description:
+                    # Remove CDATA markers
+                    description = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', description, flags=re.DOTALL)
+                    # Remove HTML tags
+                    description = re.sub(r'<[^>]+>', '', description)
+                    # Decode HTML entities
+                    description = description.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"').replace('&nbsp;', ' ')
+                    description = description.strip()
+                
+                # Extract skills from categories (RSS format)
+                skills = job.get("skills") or job.get("job_skills") or []
+                if not skills and "categories" in job:
+                    categories = job["categories"]
+                    if isinstance(categories, list):
+                        skills = [cat.get("text", cat) if isinstance(cat, dict) else str(cat) for cat in categories]
+                    elif isinstance(categories, str):
+                        skills = [categories]
+                
+                # Extract budget from title if present (e.g., "Job Title (Hourly Rate: 3 - 10 USD)")
+                budget = job.get("budget") or job.get("formatted_budget") or job.get("budget_value") or job.get("hourly_rate") or job.get("fixed_price") or 0.0
+                if not budget or budget == 0:
+                    # Try to extract from title
+                    budget_match = re.search(r'\(.*?:\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)', job_title)
+                    if budget_match:
+                        budget = float(budget_match.group(2))  # Use max rate
+                
+                # Parse pubDate (RSS format) to posted_at
+                posted_at = job.get("posted_at") or job.get("posted_on") or job.get("created_at") or job.get("pubDate")
+                if posted_at and isinstance(posted_at, str):
+                    try:
+                        dt = parsedate_to_datetime(posted_at)
+                        posted_at = dt.isoformat()
+                    except Exception:
+                        # Keep as string if parsing fails
+                        pass
+                elif posted_at and isinstance(posted_at, datetime):
+                    posted_at = posted_at.isoformat()
                 
                 # Normalize job fields to standard format
                 doc = {
                     # Standard fields (map from various Vollna field names)
                     "title": job_title,
                     "url": job_url,
-                    "description": job.get("description") or job.get("job_description") or "",
-                    "budget": job.get("budget") or job.get("formatted_budget") or job.get("budget_value") or job.get("hourly_rate") or job.get("fixed_price"),
-                    "budget_value": job.get("budget_value") or job.get("hourly_rate") or job.get("fixed_price") or job.get("budget"),
+                    "description": description,
+                    "budget": budget,
+                    "budget_value": budget,
                     "client_name": job.get("client_name") or (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else "") or "",
                     "client_rating": job.get("client_rating") or (job.get("client", {}).get("rating") if isinstance(job.get("client"), dict) else None),
                     "proposals": job.get("proposals") or job.get("proposal_count") or job.get("num_proposals"),
-                    "skills": job.get("skills") or job.get("job_skills") or [],
+                    "skills": skills if isinstance(skills, list) else (skills.split(", ") if isinstance(skills, str) else []),
                     "platform": job.get("platform") or "upwork",
-                    "posted_at": job.get("posted_at") or job.get("posted_on") or job.get("created_at"),
+                    "posted_at": posted_at,
                     "location": job.get("location") or job.get("country") or job.get("region"),
                     "job_type": job.get("job_type") or job.get("type"),
                     
