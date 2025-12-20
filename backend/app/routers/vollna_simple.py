@@ -124,9 +124,46 @@ async def vollna_webhook(
                     logger.warning(f"Skipping job {idx}: not a dict")
                     continue
                 
-                # Prepare document - store raw job with metadata
-                # Only add metadata fields if they don't exist to avoid conflicts
-                doc = dict(job)  # Copy all fields from Vollna as-is
+                # 🛑 Skip test messages and test jobs
+                if job.get("event") == "webhook.test":
+                    logger.info(f"Skipping test webhook payload (event: webhook.test)")
+                    continue
+                
+                # Get title (check multiple possible fields)
+                job_title = job.get("title") or job.get("job_title") or job.get("name") or ""
+                if "test" in str(job_title).lower():
+                    logger.info(f"Skipping test job: {job_title}")
+                    continue
+                
+                # ✅ Only process if it has a title and URL
+                job_url = job.get("url") or job.get("job_url") or job.get("link") or ""
+                if not job_title or not job_url:
+                    logger.warning(f"Skipping incomplete job payload (missing title or URL): title={bool(job_title)}, url={bool(job_url)}")
+                    continue
+                
+                # Normalize job fields to standard format
+                doc = {
+                    # Standard fields (map from various Vollna field names)
+                    "title": job_title,
+                    "url": job_url,
+                    "description": job.get("description") or job.get("job_description") or "",
+                    "budget": job.get("budget") or job.get("formatted_budget") or job.get("budget_value") or job.get("hourly_rate") or job.get("fixed_price"),
+                    "budget_value": job.get("budget_value") or job.get("hourly_rate") or job.get("fixed_price") or job.get("budget"),
+                    "client_name": job.get("client_name") or (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else "") or "",
+                    "client_rating": job.get("client_rating") or (job.get("client", {}).get("rating") if isinstance(job.get("client"), dict) else None),
+                    "proposals": job.get("proposals") or job.get("proposal_count") or job.get("num_proposals"),
+                    "skills": job.get("skills") or job.get("job_skills") or [],
+                    "platform": job.get("platform") or "upwork",
+                    "posted_at": job.get("posted_at") or job.get("posted_on") or job.get("created_at"),
+                    "location": job.get("location") or job.get("country") or job.get("region"),
+                    "job_type": job.get("job_type") or job.get("type"),
+                    
+                    # Preserve original client object if it exists
+                    "client": job.get("client") if isinstance(job.get("client"), dict) else {},
+                    
+                    # Store all original fields in raw field for reference
+                    "raw": job,
+                }
                 
                 # Add metadata only if missing (avoid $set conflicts)
                 if "source" not in doc:
@@ -139,7 +176,7 @@ async def vollna_webhook(
                 # Insert job - use insert_one to avoid conflicts
                 await repo.insert_one(doc)
                 inserted += 1
-                logger.debug(f"Inserted job {idx}: {job.get('title', 'No title')}")
+                logger.info(f"✅ Inserted job {idx}: {doc['title'][:60]}... (URL: {doc['url'][:50]}...)")
                 
             except Exception as e:
                 error_msg = f"Job {idx}: Error inserting - {str(e)}"
