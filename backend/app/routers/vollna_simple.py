@@ -374,11 +374,27 @@ async def get_all_jobs(
             ("_id", -1)
         ]).to_list(length=None)  # No limit - get all
         
-        # Convert ObjectId to string for JSON serialization
+        # Convert ObjectId to string, calculate missing ratios, and format response
         jobs = []
         for doc in docs:
             if "_id" in doc:
                 doc["_id"] = str(doc["_id"])
+            
+            # Calculate open_proposal_ratio if missing
+            if "open_proposal_ratio" not in doc or doc.get("open_proposal_ratio") is None:
+                proposals = doc.get("proposals")
+                if proposals is not None and proposals >= 0:
+                    # Ratio: (50 - proposals) / 50 * 100, higher = better opportunity
+                    open_proposal_ratio = min(max((50 - proposals) / 50 * 100, 0), 100)
+                    doc["open_proposal_ratio"] = open_proposal_ratio
+                elif proposals == 0 or proposals is None:
+                    # No proposals = 100% opportunity
+                    doc["open_proposal_ratio"] = 100
+            
+            # Ensure client_name exists (even if empty string)
+            if "client_name" not in doc:
+                doc["client_name"] = ""
+            
             jobs.append(doc)
         
         count = len(jobs)
