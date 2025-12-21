@@ -3,7 +3,7 @@ Simple Vollna pipeline - receive and expose all jobs without filtering.
 """
 import re
 from typing import Any, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote
 from email.utils import parsedate_to_datetime
 
@@ -250,17 +250,96 @@ async def vollna_webhook(
                     if budget_match:
                         budget = float(budget_match.group(2))  # Use max rate
                 
-                # Parse pubDate (RSS format) to posted_at
-                posted_at = job.get("posted_at") or job.get("posted_on") or job.get("created_at") or job.get("pubDate")
-                if posted_at and isinstance(posted_at, str):
-                    try:
-                        dt = parsedate_to_datetime(posted_at)
-                        posted_at = dt.isoformat()
-                    except Exception:
-                        # Keep as string if parsing fails
-                        pass
-                elif posted_at and isinstance(posted_at, datetime):
-                    posted_at = posted_at.isoformat()
+                # Parse posted_at from various Vollna field names
+                # Check multiple possible field names that Vollna might use
+                posted_at = None
+                time_fields = [
+                    "posted_at", "posted_on", "created_at", "pubDate", "published",
+                    "published_at", "published_time", "time", "published_time_ago",
+                    "posted_time", "date", "timestamp", "published_date"
+                ]
+                
+                # Try to find time field in job data
+                for field in time_fields:
+                    if field in job and job[field]:
+                        posted_at = job[field]
+                        break
+                
+                # If not found in direct fields, check nested locations
+                if not posted_at:
+                    # Check in raw data if it exists
+                    if "raw" in job and isinstance(job["raw"], dict):
+                        for field in time_fields:
+                            if field in job["raw"] and job["raw"][field]:
+                                posted_at = job["raw"][field]
+                                break
+                
+                # Parse the time value
+                if posted_at:
+                    if isinstance(posted_at, str):
+                        # Try to parse relative time strings like "5h ago", "20 minutes ago", "53 seconds ago"
+                        relative_time_match = re.search(r'(\d+)\s*(second|minute|hour|day|week|month|year)s?\s+ago', posted_at.lower())
+                        if relative_time_match:
+                            try:
+                                value = int(relative_time_match.group(1))
+                                unit = relative_time_match.group(2)
+                                
+                                # Calculate the actual datetime
+                                now = datetime.utcnow()
+                                if unit.startswith('second'):
+                                    posted_at = (now - timedelta(seconds=value)).isoformat()
+                                elif unit.startswith('minute'):
+                                    posted_at = (now - timedelta(minutes=value)).isoformat()
+                                elif unit.startswith('hour'):
+                                    posted_at = (now - timedelta(hours=value)).isoformat()
+                                elif unit.startswith('day'):
+                                    posted_at = (now - timedelta(days=value)).isoformat()
+                                elif unit.startswith('week'):
+                                    posted_at = (now - timedelta(weeks=value)).isoformat()
+                                elif unit.startswith('month'):
+                                    posted_at = (now - timedelta(days=value * 30)).isoformat()
+                                elif unit.startswith('year'):
+                                    posted_at = (now - timedelta(days=value * 365)).isoformat()
+                                else:
+                                    # Fall through to standard parsing
+                                    raise ValueError("Unknown time unit")
+                            except Exception:
+                                # If relative time parsing fails, try standard parsing
+                                try:
+                                    dt = parsedate_to_datetime(posted_at)
+                                    posted_at = dt.isoformat()
+                                except Exception:
+                                    # Keep as string if all parsing fails
+                                    pass
+                        else:
+                            # Try standard date parsing (ISO, RFC, etc.)
+                            try:
+                                dt = parsedate_to_datetime(posted_at)
+                                posted_at = dt.isoformat()
+                            except Exception:
+                                # Try ISO format parsing
+                                try:
+                                    dt = datetime.fromisoformat(posted_at.replace('Z', '+00:00'))
+                                    posted_at = dt.isoformat()
+                                except Exception:
+                                    # Keep as string if all parsing fails
+                                    pass
+                    elif isinstance(posted_at, (int, float)):
+                        # Handle Unix timestamp (milliseconds or seconds)
+                        try:
+                            if posted_at > 1e12:  # milliseconds
+                                posted_at = datetime.fromtimestamp(posted_at / 1000).isoformat()
+                            else:  # seconds
+                                posted_at = datetime.fromtimestamp(posted_at).isoformat()
+                        except Exception:
+                            posted_at = None
+                    elif isinstance(posted_at, datetime):
+                        posted_at = posted_at.isoformat()
+                
+                # If posted_at is still None or empty after all parsing attempts, use received_at as fallback
+                if not posted_at:
+                    logger.debug(f"No posted_at found for job: {job_title[:50]}... Using received_at as fallback")
+                    posted_at = received_at.isoformat()
                 
                 # Log available fields from Vollna payload (first job only to avoid spam)
                 if idx == 0:
