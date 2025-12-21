@@ -274,15 +274,24 @@ async def vollna_webhook(
                     else:
                         logger.info(f"🔍 Full job structure: {job}")
                 
-                # Extract client_name with detailed logging (first job only)
+                # Extract client_name - Vollna doesn't send client_name, only client_details
+                # client_details contains: rank, rating, payment_method_verified, total_spent, etc., but NO name
                 client_name = job.get("client_name") or (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else "") or ""
-                if idx == 0:
-                    logger.info(f"🔍 Extracted client_name: '{client_name}' (from client_name={job.get('client_name')}, client={job.get('client')})")
                 
-                # Extract proposals with detailed logging (first job only)
+                # Extract client_rating from client_details if available
+                client_details = job.get("client_details", {})
+                client_rating_from_details = None
+                if isinstance(client_details, dict):
+                    client_rating_from_details = client_details.get("rating")
+                
+                if idx == 0:
+                    logger.info(f"🔍 Extracted client_name: '{client_name}' (Vollna doesn't provide client names)")
+                    logger.info(f"🔍 client_details available: {bool(client_details)}, rating: {client_rating_from_details}")
+                
+                # Extract proposals - Vollna does NOT send proposals/proposal_count in their payload
                 proposals = job.get("proposals") or job.get("proposal_count") or job.get("num_proposals")
                 if idx == 0:
-                    logger.info(f"🔍 Extracted proposals: {proposals} (from proposals={job.get('proposals')}, proposal_count={job.get('proposal_count')}, num_proposals={job.get('num_proposals')})")
+                    logger.info(f"🔍 Extracted proposals: {proposals} (Vollna does NOT provide proposal counts)")
                 
                 # Normalize job fields to standard format
                 doc = {
@@ -292,8 +301,9 @@ async def vollna_webhook(
                     "description": description,
                     "budget": budget,
                     "budget_value": budget,
-                    "client_name": client_name,
-                    "client_rating": job.get("client_rating") or (job.get("client", {}).get("rating") if isinstance(job.get("client"), dict) else None),
+                    "client_name": client_name,  # Vollna doesn't provide this - will be empty
+                    "client_rating": client_rating_from_details or job.get("client_rating") or (job.get("client", {}).get("rating") if isinstance(job.get("client"), dict) else None),
+                    "client_details": client_details,  # Store full client_details for reference
                     "proposals": proposals,
                     "skills": skills if isinstance(skills, list) else (skills.split(", ") if isinstance(skills, str) else []),
                     "platform": job.get("platform") or "upwork",
