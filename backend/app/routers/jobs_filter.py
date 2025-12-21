@@ -110,16 +110,13 @@ async def filter_jobs(
         
         # Keywords search (in title, description, or skills)
         if filters.keywords:
-            keyword_regex = "|".join(filters.keywords)
             # Build OR conditions for each keyword (search in title, description, or skills)
             keyword_conditions = []
             for keyword in filters.keywords:
-                keyword_lower = keyword.lower()
                 keyword_conditions.extend([
                     {"title": {"$regex": keyword, "$options": "i"}},
                     {"description": {"$regex": keyword, "$options": "i"}},
-                    {"skills": {"$in": [keyword_lower]}},  # Exact match in skills (case-insensitive via $in)
-                    {"skills": {"$regex": keyword, "$options": "i"}}  # Also try regex for partial matches
+                    {"skills": {"$elemMatch": {"$regex": keyword, "$options": "i"}}}  # Search in skills array
                 ])
             
             and_conditions.append({
