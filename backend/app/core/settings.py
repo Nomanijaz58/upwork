@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
+    
+    # Gemini (Google AI)
+    GEMINI_API_KEY: Optional[str] = Field(
+        None,
+        description="Google Gemini API key for AI proposal generation"
+    )
 
     # n8n ingestion security (optional, but recommended)
     N8N_SHARED_SECRET: Optional[str] = None

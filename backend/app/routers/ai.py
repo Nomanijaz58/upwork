@@ -268,17 +268,23 @@ INSTRUCTIONS:
     
     prompt += "\nWrite the proposal now:"
     
-    # Generate proposal using OpenAI
+    # Generate proposal using AI service (OpenAI or Gemini)
     try:
-        openai_service = OpenAIService()
-        proposal_text, meta = await openai_service.generate(
+        model_str = str(model).lower()
+        if 'gemini' in model_str or model_str == 'gemini-pro' or model_str == 'gemini':
+            from ..services.gemini_service import GeminiService
+            ai_service = GeminiService()
+        else:
+            ai_service = OpenAIService()
+        
+        proposal_text, meta = await ai_service.generate(
             model=str(model),
             temperature=float(temperature),
             max_tokens=int(max_tokens),
             prompt=prompt,
         )
     except Exception as e:
-        logger.error(f"OpenAI generation failed: {e}")
+        logger.error(f"AI generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate proposal: {str(e)}")
     
     # Store proposal

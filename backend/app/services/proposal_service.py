@@ -74,7 +74,14 @@ class ProposalService:
 
         prompt = self._render_prompt(template=str(prompt_doc.get("template")), job=job, portfolio=portfolio_doc)
 
-        client = OpenAIService()
+        # Use Gemini or OpenAI based on model name
+        model_str = str(model).lower()
+        if 'gemini' in model_str or model_str == 'gemini-pro' or model_str == 'gemini':
+            from .gemini_service import GeminiService
+            client = GeminiService()
+        else:
+            client = OpenAIService()
+        
         text, meta = await client.generate(
             model=str(model),
             temperature=float(temperature),
