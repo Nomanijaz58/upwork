@@ -262,33 +262,27 @@ async def vollna_webhook(
                 elif posted_at and isinstance(posted_at, datetime):
                     posted_at = posted_at.isoformat()
                 
-                # Extract proposals count
-                proposals = job.get("proposals") or job.get("proposal_count") or job.get("num_proposals") or None
-                if proposals is not None:
-                    try:
-                        proposals = int(proposals)
-                    except (ValueError, TypeError):
-                        proposals = None
+                # Log available fields from Vollna payload (first job only to avoid spam)
+                if idx == 0:
+                    logger.info(f"🔍 Sample job fields from Vollna: {list(job.keys())}")
+                    logger.info(f"🔍 Client data: client_name={job.get('client_name')}, client={job.get('client')}")
+                    logger.info(f"🔍 Proposals data: proposals={job.get('proposals')}, proposal_count={job.get('proposal_count')}, num_proposals={job.get('num_proposals')}")
+                    # Show full job structure for first job (truncated)
+                    job_str = str(job)
+                    if len(job_str) > 1000:
+                        logger.info(f"🔍 Full job structure (truncated): {job_str[:1000]}...")
+                    else:
+                        logger.info(f"🔍 Full job structure: {job}")
                 
-                # Calculate open proposal ratio (assume 50 is typical max)
-                # Lower proposals = higher ratio = better opportunity
-                open_proposal_ratio = None
-                if proposals is not None and proposals > 0:
-                    # Ratio decreases as proposals increase (more competition = lower ratio)
-                    # Formula: (50 - proposals) / 50 * 100, capped at 100%
-                    open_proposal_ratio = min(max((50 - proposals) / 50 * 100, 0), 100)
-                elif proposals == 0:
-                    # No proposals yet = 100% opportunity
-                    open_proposal_ratio = 100
+                # Extract client_name with detailed logging (first job only)
+                client_name = job.get("client_name") or (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else "") or ""
+                if idx == 0:
+                    logger.info(f"🔍 Extracted client_name: '{client_name}' (from client_name={job.get('client_name')}, client={job.get('client')})")
                 
-                # Extract client name from various possible fields
-                client_name = (
-                    job.get("client_name") or 
-                    job.get("clientName") or
-                    (job.get("client", {}).get("name") if isinstance(job.get("client"), dict) else None) or
-                    (job.get("client", {}).get("title") if isinstance(job.get("client"), dict) else None) or
-                    ""
-                )
+                # Extract proposals with detailed logging (first job only)
+                proposals = job.get("proposals") or job.get("proposal_count") or job.get("num_proposals")
+                if idx == 0:
+                    logger.info(f"🔍 Extracted proposals: {proposals} (from proposals={job.get('proposals')}, proposal_count={job.get('proposal_count')}, num_proposals={job.get('num_proposals')})")
                 
                 # Normalize job fields to standard format
                 doc = {
@@ -301,7 +295,6 @@ async def vollna_webhook(
                     "client_name": client_name,
                     "client_rating": job.get("client_rating") or (job.get("client", {}).get("rating") if isinstance(job.get("client"), dict) else None),
                     "proposals": proposals,
-                    "open_proposal_ratio": open_proposal_ratio,  # Calculated ratio
                     "skills": skills if isinstance(skills, list) else (skills.split(", ") if isinstance(skills, str) else []),
                     "platform": job.get("platform") or "upwork",
                     "posted_at": posted_at,
@@ -358,7 +351,6 @@ async def get_all_jobs(
     Get ALL jobs from vollna_jobs collection.
     
     Returns all jobs sorted by most recent first (created_at or received_at).
-    Calculates open_proposal_ratio for jobs that don't have it.
     No filtering, no pagination - returns everything.
     """
     logger.info("GET /jobs/all - Fetching all Vollna jobs")
@@ -374,27 +366,11 @@ async def get_all_jobs(
             ("_id", -1)
         ]).to_list(length=None)  # No limit - get all
         
-        # Convert ObjectId to string, calculate missing ratios, and format response
+        # Convert ObjectId to string for JSON serialization
         jobs = []
         for doc in docs:
             if "_id" in doc:
                 doc["_id"] = str(doc["_id"])
-            
-            # Calculate open_proposal_ratio if missing
-            if "open_proposal_ratio" not in doc or doc.get("open_proposal_ratio") is None:
-                proposals = doc.get("proposals")
-                if proposals is not None and proposals >= 0:
-                    # Ratio: (50 - proposals) / 50 * 100, higher = better opportunity
-                    open_proposal_ratio = min(max((50 - proposals) / 50 * 100, 0), 100)
-                    doc["open_proposal_ratio"] = open_proposal_ratio
-                elif proposals == 0 or proposals is None:
-                    # No proposals = 100% opportunity
-                    doc["open_proposal_ratio"] = 100
-            
-            # Ensure client_name exists (even if empty string)
-            if "client_name" not in doc:
-                doc["client_name"] = ""
-            
             jobs.append(doc)
         
         count = len(jobs)
