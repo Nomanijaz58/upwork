@@ -141,7 +141,15 @@ async def filter_jobs(
             if filters.proposals_max is not None:
                 proposals_query["$lte"] = filters.proposals_max
             if proposals_query:
-                query["proposals"] = proposals_query
+                # Include jobs where proposals is null/undefined OR within range
+                # This allows jobs without proposal data to still be shown
+                and_conditions.append({
+                    "$or": [
+                        {"proposals": proposals_query},  # Proposals within range
+                        {"proposals": {"$exists": False}},  # No proposals field
+                        {"proposals": None},  # Proposals is null
+                    ]
+                })
         
         # Client rating
         if filters.client_rating_min is not None:
