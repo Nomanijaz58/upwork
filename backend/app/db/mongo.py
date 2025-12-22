@@ -75,9 +75,10 @@ async def connect_mongo() -> None:
         await _db["jobs_filtered"].create_index([("created_at", -1)])
         
         # Vollna Jobs collection indexes (simple pipeline)
+        await _db["vollna_jobs"].create_index([("posted_at", -1)])  # For sorting by posted time (most important)
         await _db["vollna_jobs"].create_index([("created_at", -1)])  # For sorting by most recent
         await _db["vollna_jobs"].create_index([("received_at", -1)])  # For sorting by received time
-        await _db["vollna_jobs"].create_index([("source", 1)])  # For filtering by source  # For sorting by creation time
+        await _db["vollna_jobs"].create_index([("source", 1)])  # For filtering by source
         await _db["jobs_filtered"].create_index([("budget", -1)])  # For budget filtering/sorting
         await _db["jobs_filtered"].create_index([("proposals", 1)])  # For proposal count filtering
         await _db["jobs_filtered"].create_index([("skills", 1)])  # For skills filtering

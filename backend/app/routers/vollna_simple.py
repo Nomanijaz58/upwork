@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote
 from email.utils import parsedate_to_datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..db.mongo import get_db
@@ -263,7 +263,13 @@ async def vollna_webhook(
                 for field in time_fields:
                     if field in job and job[field]:
                         posted_at = job[field]
+                        if idx == 0:  # Log for first job only
+                            logger.info(f"🔍 Found time field '{field}': {posted_at}")
                         break
+                
+                # Log if no time field found (first job only)
+                if not posted_at and idx == 0:
+                    logger.warning(f"🔍 No time field found in job. Available fields: {list(job.keys())}")
                 
                 # If not found in direct fields, check nested locations
                 if not posted_at:
@@ -314,15 +320,22 @@ async def vollna_webhook(
                         else:
                             # Try standard date parsing (ISO, RFC, etc.)
                             try:
-                                dt = parsedate_to_datetime(posted_at)
+                                # Try ISO format parsing first (most common for Vollna)
+                                dt = datetime.fromisoformat(posted_at.replace('Z', '+00:00'))
                                 posted_at = dt.isoformat()
+                                if idx == 0:
+                                    logger.info(f"🔍 Parsed ISO format time: {posted_at}")
                             except Exception:
-                                # Try ISO format parsing
+                                # Try RFC format parsing
                                 try:
-                                    dt = datetime.fromisoformat(posted_at.replace('Z', '+00:00'))
+                                    dt = parsedate_to_datetime(posted_at)
                                     posted_at = dt.isoformat()
-                                except Exception:
+                                    if idx == 0:
+                                        logger.info(f"🔍 Parsed RFC format time: {posted_at}")
+                                except Exception as e:
                                     # Keep as string if all parsing fails
+                                    if idx == 0:
+                                        logger.warning(f"🔍 Failed to parse time '{posted_at}': {e}")
                                     pass
                     elif isinstance(posted_at, (int, float)):
                         # Handle Unix timestamp (milliseconds or seconds)
@@ -435,25 +448,39 @@ async def vollna_webhook(
 @router.get("/jobs/all")
 async def get_all_jobs(
     db: AsyncIOMotorDatabase = Depends(get_db),
+    skip: int = Query(0, ge=0, description="Number of jobs to skip (for pagination)"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of jobs to return (default: 50, max: 200)"),
+    include_raw: bool = Query(False, description="Include raw field (excluded by default for performance)"),
 ):
     """
-    Get ALL jobs from vollna_jobs collection.
+    Get jobs from vollna_jobs collection with pagination.
     
-    Returns all jobs sorted by most recent first (created_at or received_at).
-    No filtering, no pagination - returns everything.
+    Returns jobs sorted by posted_at (most recent first), then created_at, then received_at.
+    Supports pagination via skip and limit parameters for better performance.
+    
+    The 'raw' field is excluded by default to improve response time. Set include_raw=true to include it.
     """
-    logger.info("GET /jobs/all - Fetching all Vollna jobs")
+    logger.info(f"GET /jobs/all - Fetching jobs (skip={skip}, limit={limit}, include_raw={include_raw})")
     
     try:
         repo = VollnaJobsRepo(db)
         
-        # Find all jobs, sorted by most recent first
-        # Try created_at first, then received_at, then _id as fallback
-        docs = await repo.col.find({}).sort([
+        # Get total count for pagination info (cached count would be better, but this is acceptable)
+        total_count = await repo.col.count_documents({})
+        
+        # Build projection to exclude large 'raw' field by default for better performance
+        projection = {"raw": 0} if not include_raw else {}
+        
+        # Find jobs with pagination, sorted by posted_at first (most recent), then fallback to created_at/received_at
+        # Use posted_at for better sorting since we now have actual timestamps
+        cursor = repo.col.find({}, projection).sort([
+            ("posted_at", -1),  # Sort by posted_at first (actual job posting time)
             ("created_at", -1),
             ("received_at", -1),
             ("_id", -1)
-        ]).to_list(length=None)  # No limit - get all
+        ]).skip(skip).limit(limit)
+        
+        docs = await cursor.to_list(length=limit)
         
         # Convert ObjectId to string for JSON serialization
         jobs = []
@@ -462,14 +489,17 @@ async def get_all_jobs(
                 doc["_id"] = str(doc["_id"])
             jobs.append(doc)
         
-        count = len(jobs)
-        logger.info(f"GET /jobs/all - Returning {count} jobs")
+        logger.info(f"GET /jobs/all - Returning {len(jobs)} jobs (total: {total_count})")
         
         return {
-            "count": count,
+            "count": len(jobs),
+            "total": total_count,
+            "skip": skip,
+            "limit": limit,
+            "has_more": (skip + len(jobs)) < total_count,
             "jobs": jobs,
         }
         
     except Exception as e:
-        logger.error(f"Error fetching all jobs: {str(e)}", exc_info=True)
+        logger.error(f"Error fetching jobs: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

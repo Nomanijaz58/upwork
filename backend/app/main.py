@@ -41,6 +41,9 @@ app = FastAPI(
     version="1.0.0",
     description="Production-ready, MongoDB-configurable backend for an Upwork Proposal Bot.",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # Configure CORS from environment variables
@@ -108,4 +111,11 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {"service": "upwork-proposal-bot", "docs": "/docs", "health": "/health"}
+    """Fast root endpoint for health checks and quick responses."""
+    return {
+        "service": "upwork-proposal-bot",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health"
+    }
