@@ -449,14 +449,14 @@ async def vollna_webhook(
 async def get_all_jobs(
     db: AsyncIOMotorDatabase = Depends(get_db),
     skip: int = Query(0, ge=0, description="Number of jobs to skip (for pagination)"),
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of jobs to return (default: 50, max: 200)"),
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of jobs to return (optional, returns all if not specified)"),
     include_raw: bool = Query(False, description="Include raw field (excluded by default for performance)"),
 ):
     """
-    Get jobs from vollna_jobs collection with pagination.
+    Get ALL jobs from vollna_jobs collection.
     
-    Returns jobs sorted by posted_at (most recent first), then created_at, then received_at.
-    Supports pagination via skip and limit parameters for better performance.
+    Returns all jobs sorted by posted_at (most recent first), then created_at, then received_at.
+    By default, returns all jobs. Use limit parameter to restrict the number of results.
     
     The 'raw' field is excluded by default to improve response time. Set include_raw=true to include it.
     """
@@ -465,22 +465,27 @@ async def get_all_jobs(
     try:
         repo = VollnaJobsRepo(db)
         
-        # Get total count for pagination info (cached count would be better, but this is acceptable)
+        # Get total count for pagination info
         total_count = await repo.col.count_documents({})
         
         # Build projection to exclude large 'raw' field by default for better performance
         projection = {"raw": 0} if not include_raw else {}
         
-        # Find jobs with pagination, sorted by posted_at first (most recent), then fallback to created_at/received_at
+        # Find jobs, sorted by posted_at first (most recent), then fallback to created_at/received_at
         # Use posted_at for better sorting since we now have actual timestamps
         cursor = repo.col.find({}, projection).sort([
             ("posted_at", -1),  # Sort by posted_at first (actual job posting time)
             ("created_at", -1),
             ("received_at", -1),
             ("_id", -1)
-        ]).skip(skip).limit(limit)
+        ]).skip(skip)
         
-        docs = await cursor.to_list(length=limit)
+        # Apply limit only if specified, otherwise return all
+        if limit is not None:
+            cursor = cursor.limit(limit)
+            docs = await cursor.to_list(length=limit)
+        else:
+            docs = await cursor.to_list(length=None)  # Return all jobs
         
         # Convert ObjectId to string for JSON serialization
         jobs = []
@@ -496,7 +501,7 @@ async def get_all_jobs(
             "total": total_count,
             "skip": skip,
             "limit": limit,
-            "has_more": (skip + len(jobs)) < total_count,
+            "has_more": limit is not None and (skip + len(jobs)) < total_count,
             "jobs": jobs,
         }
         

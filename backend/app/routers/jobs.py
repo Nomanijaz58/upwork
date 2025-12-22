@@ -28,13 +28,13 @@ api_router = APIRouter(prefix="/api", tags=["api"])
 async def get_latest_jobs(
     db: AsyncIOMotorDatabase = Depends(get_db),
     source: Optional[str] = Query(None, description="Filter by source (e.g., 'vollna', 'best_match')"),
-    limit: int = Query(200, ge=1, le=1000, description="Maximum number of jobs to return (default: 200, max: 1000)"),
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of jobs to return (optional, returns all if not specified)"),
 ):
     """
     Get latest jobs sorted by posted date.
     
-    Returns latest jobs sorted by posted_at in descending order (newest first).
-    This endpoint is designed for frontend polling every 10-15 seconds.
+    Returns all jobs sorted by posted_at in descending order (newest first) by default.
+    Use limit parameter to restrict the number of results.
     
     Use this endpoint for:
     - Frontend chatbot polling for new jobs
@@ -49,12 +49,21 @@ async def get_latest_jobs(
     if source:
         query["source"] = source
     
-    docs = await repo.find_many(
-        query,
-        skip=0,
-        limit=limit,
-        sort=[("posted_at", -1), ("created_at", -1)]  # Newest first
-    )
+    # Apply limit only if specified, otherwise return all
+    if limit is not None:
+        docs = await repo.find_many(
+            query,
+            skip=0,
+            limit=limit,
+            sort=[("posted_at", -1), ("created_at", -1)]  # Newest first
+        )
+    else:
+        docs = await repo.find_many(
+            query,
+            skip=0,
+            limit=None,  # Return all jobs
+            sort=[("posted_at", -1), ("created_at", -1)]  # Newest first
+        )
     
     jobs: list[JobOut] = []
     for doc in docs:
@@ -84,13 +93,13 @@ async def get_latest_jobs(
 async def get_jobs_api(
     db: AsyncIOMotorDatabase = Depends(get_db),
     source: Optional[str] = Query(None, description="Filter by source (e.g., 'vollna', 'best_match')"),
-    limit: int = Query(200, ge=1, le=1000, description="Maximum number of jobs to return (default: 200, max: 1000)"),
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of jobs to return (optional, returns all if not specified)"),
 ):
     """
     Alias endpoint for /jobs/latest to match frontend API path.
     
     Frontend calls /api/jobs, this endpoint provides compatibility.
-    Returns ALL jobs from Vollna feed (up to limit).
+    Returns ALL jobs from Vollna feed by default. Use limit parameter to restrict results.
     """
     return await get_latest_jobs(db, source, limit)
 

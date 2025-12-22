@@ -43,15 +43,18 @@ class BaseRepository:
         self,
         query: Optional[dict[str, Any]] = None,
         *,
-        limit: int = 100,
+        limit: Optional[int] = 100,
         skip: int = 0,
         sort: Optional[list[tuple[str, int]]] = None,
     ) -> list[dict[str, Any]]:
         q = query or {}
-        cursor = self.col.find(q).skip(skip).limit(limit)
+        cursor = self.col.find(q).skip(skip)
+        if limit is not None:
+            cursor = cursor.limit(limit)
         if sort:
             cursor = cursor.sort(sort)
-        return await cursor.to_list(length=limit)
+        # If limit is None, return all results, otherwise return up to limit
+        return await cursor.to_list(length=limit if limit is not None else None)
 
     async def update_one(
         self, query: dict[str, Any], update: dict[str, Any], *, upsert: bool = False
